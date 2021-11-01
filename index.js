@@ -3,8 +3,22 @@ const { MongoClient } = require('mongodb');
 require('dotenv').config()
 const cors = require('cors');
 
+// firebase authorization require
+var admin = require("firebase-admin");
+
 const app = express();
 const port = process.env.PORT || 5000;
+
+
+
+// firebase admin initialization
+var serviceAccount = require('./ema-john-simple-a70da-firebase-adminsdk-sd55c-bbe7e526b1.json');
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+
 
 
 // middleware
@@ -17,6 +31,21 @@ app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.zsx3s.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+
+
+async function verifyToken(req, res, next) {
+    if (req.headers?.authorization?.startsWith('Bearer ')) {
+        const idToken = req.headers.authorization.split('Bearer ')[1];
+        try {
+            const decodedUser = await admin.auth().verifyIdToken(idToken);
+            req.decodedUserEmail = decodedUser.email;
+        }
+        catch {
+
+        }
+    }
+    next();
+}
 
 
 async function run() {
@@ -55,9 +84,26 @@ async function run() {
             res.json(products);
         })
 
+        // GET orders API
+        app.get('/orders', verifyToken, async (req, res) => {
+            const email = req.query?.email
+            if (req.decodedUserEmail === email) {
+                const query = { email: email }
+                const cursor = orderCollection.find(query);
+                const orders = await cursor.toArray();
+                res.json(orders);
+            }
+            else {
+                res.status(401).json({ message: 'user not authorized' })
+            }
+
+
+        })
+
         // add orders API
         app.post('/orders', async (req, res) => {
             const order = req.body;
+            order.createAt = new Date();
             const result = await orderCollection.insertOne(order);
             res.json(result);
         })
